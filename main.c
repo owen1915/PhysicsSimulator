@@ -1,50 +1,90 @@
 #include <SDL2/SDL.h>
-#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include "window.h"
+#include "particle.h"
+#include "draw.h"
+
+
+// forward declaration (if draw_circle is in another file)
+void draw_circle(SDL_Renderer* renderer, float cx, float cy, float radius, int segments,
+                 Uint8 r, Uint8 g, Uint8 b, Uint8 a);
 
 int main() {
-    // initialize SDL video subsystem
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
+    GameWindow window;
+    if (!init_window(&window, "Physics Simulation", 800, 600))
         return 1;
+
+    srand(time(NULL)); // seed random
+
+    int amnt_of_particles = 100;
+    Particle particles[amnt_of_particles];
+    for (int i = 0; i < amnt_of_particles; i++) {
+        particles[i].x = rand() % 800;
+        particles[i].y = 100;
+        particles[i].radius = (rand() % 30) + 5;
+        particles[i].mass = particles[i].radius * 0.5f; 
+        particles[i].vx = (rand() % 400 - 100);  // random x velocity
+        particles[i].vy = (rand() % 200 - 100);  // random y velocity   
+        particles[i].color = (SDL_Color){255, 0, 0, 255};
     }
 
-    // create window
-    SDL_Window* window = SDL_CreateWindow("Basic SDL Window",
-                                          SDL_WINDOWPOS_CENTERED,
-                                          SDL_WINDOWPOS_CENTERED,
-                                          800, 600,
-                                          SDL_WINDOW_SHOWN);
-    if (!window) {
-        printf("Window creation failed: %s\n", SDL_GetError());
-        SDL_Quit();
-        return 1;
-    }
-
-    // create renderer
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    if (!renderer) {
-        printf("Renderer creation failed: %s\n", SDL_GetError());
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-
-    // main loop
     int running = 1;
     SDL_Event event;
+
+    const int FPS = 60;
+    const int frameDelay = 1000 / FPS;
+    Uint32 frameStart;
+    int frameTime;
+
     while (running) {
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) running = 0;
+        frameStart = SDL_GetTicks();
+
+        while (SDL_PollEvent(&event))
+            if (event.type == SDL_QUIT)
+                running = 0;
+
+        // clear screen
+        SDL_SetRenderDrawColor(window.renderer, 255, 255, 255, 255);
+        SDL_RenderClear(window.renderer);
+
+        // main loop
+        float dt = 1.0f / 60.0f;
+        float gravity = 500.0f;
+        int substeps = 8;          // << increase for stability
+        float sub_dt = dt / substeps;
+
+        for (int s = 0; s < substeps; s++) {
+            for (int i = 0; i < amnt_of_particles; i++)
+                particle_update(&particles[i], sub_dt, gravity);
+
+            for (int i = 0; i < amnt_of_particles; i++) {
+                for (int j = i + 1; j < amnt_of_particles; j++)
+                    particle_collide(&particles[i], &particles[j]);
+            }
+        }
+        
+        // draw all particles
+        for (int i = 0; i < amnt_of_particles; i++) {
+            draw_circle(window.renderer,
+                        particles[i].x,
+                        particles[i].y,
+                        particles[i].radius,
+                        particles[i].mass,
+                        particles[i].color.r,
+                        particles[i].color.g,
+                        particles[i].color.b,
+                        particles[i].color.a);
         }
 
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-        SDL_RenderClear(renderer);
-        SDL_RenderPresent(renderer);
+        SDL_RenderPresent(window.renderer);
+
+        // cap framerate
+        frameTime = SDL_GetTicks() - frameStart;
+        if (frameDelay > frameTime)
+            SDL_Delay(frameDelay - frameTime);
     }
 
-    // cleanup
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+    close_window(&window);
     return 0;
 }
